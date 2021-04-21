@@ -4,6 +4,7 @@
  */
 package com.salesforce.emp.connector.example;
 
+import com.google.gson.Gson;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Map;
@@ -14,7 +15,6 @@ import com.salesforce.emp.connector.BayeuxParameters;
 import com.salesforce.emp.connector.EmpConnector;
 import com.salesforce.emp.connector.TopicSubscription;
 import org.cometd.bayeux.Channel;
-import org.eclipse.jetty.util.ajax.JSON;
 
 /**
  * An example of using the EMP connector using bearer tokens
@@ -50,7 +50,8 @@ public class BearerTokenExample {
             }
         };
 
-        Consumer<Map<String, Object>> consumer = event -> System.out.println(String.format("Received:\n%s", JSON.toString(event)));
+        Gson gson = new Gson();
+        Consumer<Map<String, Object>> consumer = event -> System.out.println(String.format("Received:\n%s", gson.toJson(event)));
         EmpConnector connector = new EmpConnector(params);
 
         connector.addListener(Channel.META_CONNECT, new LoggingListener(true, true))

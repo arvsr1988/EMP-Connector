@@ -4,17 +4,8 @@
  * Licensed under the BSD 3-Clause license.
  * For full license text, see LICENSE.TXT file in the repo root  or https://opensource.org/licenses/BSD-3-Clause
  */
-package com.salesforce.emp.connector;
 
-import org.cometd.bayeux.Channel;
-import org.cometd.bayeux.Message;
-import org.cometd.bayeux.client.ClientSessionChannel;
-import org.cometd.client.BayeuxClient;
-import org.cometd.client.transport.LongPollingTransport;
-import org.eclipse.jetty.client.HttpClient;
-import org.eclipse.jetty.client.api.Request;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+package com.salesforce.emp.connector;
 
 import java.net.ConnectException;
 import java.util.Map;
@@ -27,6 +18,18 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.cometd.bayeux.Channel;
+import org.cometd.bayeux.Message;
+import org.cometd.bayeux.client.ClientSessionChannel;
+import org.cometd.client.BayeuxClient;
+import org.cometd.client.http.jetty.JettyHttpClientTransport;
+import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.api.Request;
+import org.eclipse.jetty.client.dynamic.HttpClientTransportDynamic;
+import org.eclipse.jetty.io.ClientConnector;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author hal.hildebrand
@@ -121,13 +124,21 @@ public class EmpConnector {
     private AtomicBoolean reauthenticate = new AtomicBoolean(false);
 
     public EmpConnector(BayeuxParameters parameters) {
+
+        SslContextFactory.Client sslContextFactory = new SslContextFactory.Client();
+
+        ClientConnector clientConnector = new ClientConnector();
+        clientConnector.setSslContextFactory(sslContextFactory);
+//        clientConnector.setSslContextFactory(parameters.sslContextFactory());
         this.parameters = parameters;
-        httpClient = new HttpClient(parameters.sslContextFactory());
+
+        httpClient = new HttpClient(new HttpClientTransportDynamic(clientConnector));
         httpClient.getProxyConfiguration().getProxies().addAll(parameters.proxies());
     }
 
     /**
      * Start the connector.
+     *
      * @return true if connection was established, false otherwise
      */
     public Future<Boolean> start() {
@@ -185,26 +196,23 @@ public class EmpConnector {
     /**
      * Subscribe to a topic, receiving events after the replayFrom position
      *
-     * @param topic
-     *            - the topic to subscribe to
-     * @param replayFrom
-     *            - the replayFrom position in the event stream
-     * @param consumer
-     *            - the consumer of the events
+     * @param topic      - the topic to subscribe to
+     * @param replayFrom - the replayFrom position in the event stream
+     * @param consumer   - the consumer of the events
      * @return a Future returning the Subscription - on completion returns a Subscription or throws a CannotSubscribe
-     *         exception
+     * exception
      */
     public Future<TopicSubscription> subscribe(String topic, long replayFrom, Consumer<Map<String, Object>> consumer) {
         if (!running.get()) {
             throw new IllegalStateException(String.format("Connector[%s} has not been started",
-                    parameters.endpoint()));
+                parameters.endpoint()));
         }
         topic = topic.replaceAll("/$", "");
 
         final String topicWithoutQueryString = topicWithoutQueryString(topic);
         if (replay.putIfAbsent(topicWithoutQueryString, replayFrom) != null) {
             throw new IllegalStateException(String.format("Already subscribed to %s [%s]",
-                    topic, parameters.endpoint()));
+                topic, parameters.endpoint()));
         }
 
         SubscriptionImpl subscription = new SubscriptionImpl(topic, consumer);
@@ -215,25 +223,22 @@ public class EmpConnector {
     /**
      * Unsubscribe to a topic subscription
      *
-     * @param topic
-     *            - the topic subscribed
+     * @param topic - the topic subscribed
      */
     public void unsubscribe(String topic) {
         subscriptions.stream()
-                .filter(subscription -> subscription.getTopic().equalsIgnoreCase(topic))
-                .findAny()
-                .ifPresent(SubscriptionImpl::cancel);
+            .filter(subscription -> subscription.getTopic().equalsIgnoreCase(topic))
+            .findAny()
+            .ifPresent(SubscriptionImpl::cancel);
     }
 
     /**
      * Subscribe to a topic, receiving events from the earliest event position in the stream
      *
-     * @param topic
-     *            - the topic to subscribe to
-     * @param consumer
-     *            - the consumer of the events
+     * @param topic    - the topic to subscribe to
+     * @param consumer - the consumer of the events
      * @return a Future returning the Subscription - on completion returns a Subscription or throws a CannotSubscribe
-     *         exception
+     * exception
      */
     public Future<TopicSubscription> subscribeEarliest(String topic, Consumer<Map<String, Object>> consumer) {
         return subscribe(topic, REPLAY_FROM_EARLIEST, consumer);
@@ -242,12 +247,10 @@ public class EmpConnector {
     /**
      * Subscribe to a topic, receiving events from the latest event position in the stream
      *
-     * @param topic
-     *            - the topic to subscribe to
-     * @param consumer
-     *            - the consumer of the events
+     * @param topic    - the topic to subscribe to
+     * @param consumer - the consumer of the events
      * @return a Future returning the Subscription - on completion returns a Subscription or throws a CannotSubscribe
-     *         exception
+     * exception
      */
     public Future<TopicSubscription> subscribeTip(String topic, Consumer<Map<String, Object>> consumer) {
         return subscribe(topic, REPLAY_FROM_TIP, consumer);
@@ -295,7 +298,7 @@ public class EmpConnector {
 
         String bearerToken = bearerToken();
 
-        LongPollingTransport httpTransport = new LongPollingTransport(parameters.longPollingOptions(), httpClient) {
+        JettyHttpClientTransport httpTransport = new JettyHttpClientTransport(parameters.longPollingOptions(), httpClient) {
             @Override
             protected void customize(Request request) {
                 request.header(AUTHORIZATION, bearerToken);
@@ -315,7 +318,7 @@ public class EmpConnector {
                     error = m.get(FAILURE);
                 }
                 future.completeExceptionally(new ConnectException(
-                        String.format("Cannot connect [%s] : %s", parameters.endpoint(), error)));
+                    String.format("Cannot connect [%s] : %s", parameters.endpoint(), error)));
                 running.set(false);
             } else {
                 subscriptions.forEach(SubscriptionImpl::subscribe);
@@ -372,20 +375,20 @@ public class EmpConnector {
         }
 
         private boolean isError(Message message, String errorCode) {
-            String error = (String)message.get(Message.ERROR_FIELD);
+            String error = (String) message.get(Message.ERROR_FIELD);
             String failureReason = getFailureReason(message);
 
             return (error != null && error.startsWith(errorCode)) ||
-                    (failureReason != null && failureReason.startsWith(errorCode));
+                (failureReason != null && failureReason.startsWith(errorCode));
         }
 
         private String getFailureReason(Message message) {
             String failureReason = null;
             Map<String, Object> ext = message.getExt();
             if (ext != null) {
-                Map<String, Object> sfdc = (Map<String, Object>)ext.get("sfdc");
+                Map<String, Object> sfdc = (Map<String, Object>) ext.get("sfdc");
                 if (sfdc != null) {
-                    failureReason = (String)sfdc.get("failureReason");
+                    failureReason = (String) sfdc.get("failureReason");
                 }
             }
             return failureReason;
