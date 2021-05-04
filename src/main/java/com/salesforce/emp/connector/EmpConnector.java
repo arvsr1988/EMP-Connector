@@ -10,7 +10,7 @@ import org.cometd.bayeux.Channel;
 import org.cometd.bayeux.Message;
 import org.cometd.bayeux.client.ClientSessionChannel;
 import org.cometd.client.BayeuxClient;
-import org.cometd.client.transport.LongPollingTransport;
+import org.cometd.client.http.jetty.JettyHttpClientTransport;
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.api.Request;
 import org.slf4j.Logger;
@@ -295,7 +295,7 @@ public class EmpConnector {
 
         String bearerToken = bearerToken();
 
-        LongPollingTransport httpTransport = new LongPollingTransport(parameters.longPollingOptions(), httpClient) {
+        JettyHttpClientTransport httpTransport = new JettyHttpClientTransport(parameters.longPollingOptions(), httpClient) {
             @Override
             protected void customize(Request request) {
                 request.header(AUTHORIZATION, bearerToken);
